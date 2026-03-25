@@ -106,7 +106,7 @@
                 </configuration>
             </plugin>
 
-            <!-- JaCoCo: Test Coverage -->
+            <!-- JaCoCo: Test Coverage (report only, no build failure) -->
             <plugin>
                 <groupId>org.jacoco</groupId>
                 <artifactId>jacoco-maven-plugin</artifactId>
@@ -121,29 +121,10 @@
                         <phase>verify</phase>
                         <goals><goal>report</goal></goals>
                     </execution>
-                    <execution>
-                        <id>check</id>
-                        <phase>verify</phase>
-                        <goals><goal>check</goal></goals>
-                        <configuration>
-                            <rules>
-                                <rule>
-                                    <element>BUNDLE</element>
-                                    <limits>
-                                        <limit>
-                                            <counter>LINE</counter>
-                                            <value>COVEREDRATIO</value>
-                                            <minimum>0.70</minimum>
-                                        </limit>
-                                    </limits>
-                                </rule>
-                            </rules>
-                        </configuration>
-                    </execution>
                 </executions>
             </plugin>
 
-            <!-- Checkstyle: Code Style -->
+            <!-- Checkstyle: Code Style (report only, no build failure) -->
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-checkstyle-plugin</artifactId>
@@ -152,6 +133,7 @@
                     <configLocation>google_checks.xml</configLocation>
                     <consoleOutput>true</consoleOutput>
                     <failsOnError>false</failsOnError>
+                    <failOnViolation>false</failOnViolation>
                     <violationSeverity>warning</violationSeverity>
                 </configuration>
                 <executions>

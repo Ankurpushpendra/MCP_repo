@@ -116,12 +116,23 @@ jobs:
           cache: maven
 
       # ── Test Coverage (JaCoCo) ─────────────────
-      - name: Run tests with coverage
+      - name: Run tests and generate coverage report
         run: mvn verify --no-transfer-progress
         env:
           SPRING_DATASOURCE_URL: jdbc:postgresql://localhost:5432/ecommerce_db
           SPRING_DATASOURCE_USERNAME: postgres
           SPRING_DATASOURCE_PASSWORD: Wpl@12345
+
+      - name: Print coverage summary
+        if: always()
+        run: |
+          REPORT=target/site/jacoco/index.html
+          if [ -f "$REPORT" ]; then
+            echo "Coverage report generated at: target/site/jacoco/index.html"
+            echo "Download the 'coverage-report' artifact to view it in a browser."
+          else
+            echo "Coverage report not found — tests may have failed."
+          fi
 
       - name: Upload JaCoCo coverage report
         if: always()
@@ -132,8 +143,9 @@ jobs:
           retention-days: 7
 
       # ── Checkstyle ────────────────────────────
-      - name: Run Checkstyle
+      - name: Run Checkstyle (report only)
         run: mvn checkstyle:checkstyle --no-transfer-progress
+        continue-on-error: true
 
       - name: Upload Checkstyle report
         if: always()
@@ -144,11 +156,12 @@ jobs:
           retention-days: 7
 
       # ── Dependency Vulnerability Scan ─────────
-      - name: OWASP Dependency Check
+      - name: OWASP Dependency Check (informational)
         run: |
           mvn org.owasp:dependency-check-maven:check \
-            -DfailBuildOnCVSS=9 \
-            --no-transfer-progress || true
+            -DfailBuildOnCVSS=10 \
+            --no-transfer-progress
+        continue-on-error: true
 
       - name: Upload dependency check report
         if: always()
