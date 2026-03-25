@@ -7,9 +7,38 @@ on:
     branches: [ main, master, develop ]
 
 jobs:
-  build-and-test:
-    name: Build & Test
+
+  # ─────────────────────────────────────────────
+  # JOB 1: Compile
+  # ─────────────────────────────────────────────
+  compile:
+    name: Compile
     runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+          cache: maven
+
+      - name: Compile source code
+        run: mvn compile --no-transfer-progress
+
+      - name: Compile test code
+        run: mvn test-compile --no-transfer-progress
+
+  # ─────────────────────────────────────────────
+  # JOB 2: Unit Tests
+  # ─────────────────────────────────────────────
+  test:
+    name: Tests
+    runs-on: ubuntu-latest
+    needs: compile
 
     services:
       postgres:
@@ -37,15 +66,12 @@ jobs:
           distribution: 'temurin'
           cache: maven
 
-      - name: Run tests
+      - name: Run all tests
         run: mvn test --no-transfer-progress
         env:
           SPRING_DATASOURCE_URL: jdbc:postgresql://localhost:5432/ecommerce_db
           SPRING_DATASOURCE_USERNAME: postgres
           SPRING_DATASOURCE_PASSWORD: Wpl@12345
-
-      - name: Build JAR (skip tests)
-        run: mvn package -DskipTests --no-transfer-progress
 
       - name: Upload test reports
         if: always()
@@ -55,10 +81,151 @@ jobs:
           path: target/surefire-reports/
           retention-days: 7
 
+  # ─────────────────────────────────────────────
+  # JOB 3: Code Quality
+  # ─────────────────────────────────────────────
+  code-quality:
+    name: Code Quality
+    runs-on: ubuntu-latest
+    needs: compile
+
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_DB: ecommerce_db
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: Wpl@12345
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+          cache: maven
+
+      # ── Test Coverage (JaCoCo) ─────────────────
+      - name: Run tests with coverage
+        run: mvn verify --no-transfer-progress
+        env:
+          SPRING_DATASOURCE_URL: jdbc:postgresql://localhost:5432/ecommerce_db
+          SPRING_DATASOURCE_USERNAME: postgres
+          SPRING_DATASOURCE_PASSWORD: Wpl@12345
+
+      - name: Upload JaCoCo coverage report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: target/site/jacoco/
+          retention-days: 7
+
+      # ── Checkstyle ────────────────────────────
+      - name: Run Checkstyle
+        run: mvn checkstyle:checkstyle --no-transfer-progress
+
+      - name: Upload Checkstyle report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: checkstyle-report
+          path: target/checkstyle-result.xml
+          retention-days: 7
+
+      # ── Dependency Vulnerability Scan ─────────
+      - name: OWASP Dependency Check
+        run: |
+          mvn org.owasp:dependency-check-maven:check \
+            -DfailBuildOnCVSS=9 \
+            --no-transfer-progress || true
+
+      - name: Upload dependency check report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: dependency-check-report
+          path: target/dependency-check-report.html
+          retention-days: 7
+
+  # ─────────────────────────────────────────────
+  # JOB 4: Build JAR
+  # ─────────────────────────────────────────────
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    needs: [ test, code-quality ]
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+          cache: maven
+
+      - name: Build JAR
+        run: mvn package -DskipTests --no-transfer-progress
+
+      - name: Print JAR info
+        run: |
+          echo "Built artifact:"
+          ls -lh target/*.jar
+
       - name: Upload JAR artifact
-        if: success()
         uses: actions/upload-artifact@v4
         with:
           name: ecommerce-app-jar
           path: target/*.jar
           retention-days: 7
+
+  # ─────────────────────────────────────────────
+  # JOB 5: CI Summary
+  # ─────────────────────────────────────────────
+  ci-summary:
+    name: CI Summary
+    runs-on: ubuntu-latest
+    needs: [ compile, test, code-quality, build ]
+    if: always()
+
+    steps:
+      - name: Print results
+        run: |
+          echo "================================================"
+          echo "  CI Pipeline Results"
+          echo "================================================"
+          echo "  Compile       : ${{ needs.compile.result }}"
+          echo "  Tests         : ${{ needs.test.result }}"
+          echo "  Code Quality  : ${{ needs.code-quality.result }}"
+          echo "  Build         : ${{ needs.build.result }}"
+          echo "================================================"
+
+          if [[ "${{ needs.compile.result }}" == "failure" ]]; then
+            echo "FAILED: Code does not compile."
+            exit 1
+          fi
+
+          if [[ "${{ needs.test.result }}" == "failure" ]]; then
+            echo "FAILED: One or more tests failed."
+            exit 1
+          fi
+
+          if [[ "${{ needs.build.result }}" == "failure" ]]; then
+            echo "FAILED: JAR build failed."
+            exit 1
+          fi
+
+          echo "Pipeline passed successfully."
