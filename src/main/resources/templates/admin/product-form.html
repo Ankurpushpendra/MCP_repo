@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <title>Product Form - ShopApp</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css">
+</head>
+<body class="bg-light">
+<div th:replace="~{fragments/navbar :: navbar}"></div>
+
+<div class="container py-4">
+    <div class="row justify-content-center">
+        <div class="col-md-7">
+            <div class="card shadow">
+                <div class="card-header">
+                    <h5 class="mb-0" th:text="${productId != null} ? 'Edit Product' : 'New Product'"></h5>
+                </div>
+                <div class="card-body">
+                    <form th:action="${productId != null} ? @{/admin/products/{id}/update(id=${productId})} : @{/admin/products}"
+                          th:object="${product}" method="post">
+
+                        <div class="mb-3">
+                            <label class="form-label">Product Name *</label>
+                            <input type="text" th:field="*{name}" class="form-control"
+                                   th:classappend="${#fields.hasErrors('name')} ? 'is-invalid'">
+                            <div class="invalid-feedback" th:errors="*{name}"></div>
+                        </div>
+
+                        <div class="mb-3">
+                            <label class="form-label">Description</label>
+                            <textarea th:field="*{description}" class="form-control" rows="3"></textarea>
+                        </div>
+
+                        <div class="row">
+                            <div class="col-md-6 mb-3">
+                                <label class="form-label">Price *</label>
+                                <div class="input-group">
+                                    <span class="input-group-text">$</span>
+                                    <input type="number" th:field="*{price}" class="form-control"
+                                           step="0.01" min="0.01"
+                                           th:classappend="${#fields.hasErrors('price')} ? 'is-invalid'">
+                                    <div class="invalid-feedback" th:errors="*{price}"></div>
+                                </div>
+                            </div>
+                            <div class="col-md-6 mb-3">
+                                <label class="form-label">Stock Quantity *</label>
+                                <input type="number" th:field="*{stockQuantity}" class="form-control"
+                                       min="0"
+                                       th:classappend="${#fields.hasErrors('stockQuantity')} ? 'is-invalid'">
+                                <div class="invalid-feedback" th:errors="*{stockQuantity}"></div>
+                            </div>
+                        </div>
+
+                        <div class="mb-3">
+                            <label class="form-label">Category *</label>
+                            <select th:field="*{categoryId}" class="form-select"
+                                    th:classappend="${#fields.hasErrors('categoryId')} ? 'is-invalid'">
+                                <option value="">Select category</option>
+                                <option th:each="cat : ${categories}"
+                                        th:value="${cat.id}"
+                                        th:text="${cat.name}"></option>
+                            </select>
+                            <div class="invalid-feedback" th:errors="*{categoryId}"></div>
+                        </div>
+
+                        <div class="mb-3">
+                            <label class="form-label">Image URL</label>
+                            <input type="url" th:field="*{imageUrl}" class="form-control" placeholder="https://...">
+                        </div>
+
+                        <div class="d-flex gap-2">
+                            <button type="submit" class="btn btn-primary"
+                                    th:text="${productId != null} ? 'Update Product' : 'Create Product'"></button>
+                            <a th:href="@{/admin/products}" class="btn btn-outline-secondary">Cancel</a>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>
