@@ -1,0 +1,262 @@
+name: PR Validation
+
+on:
+  pull_request:
+    branches: [ main, master, develop ]
+    types: [ opened, synchronize, reopened ]
+
+# Cancel previous runs on the same PR if a new commit is pushed
+concurrency:
+  group: pr-validation-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  # ─────────────────────────────────────────────
+  # JOB 1: Validate PR title and description
+  # ─────────────────────────────────────────────
+  pr-title-check:
+    name: PR Title Check
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check PR title follows convention
+        uses: amannn/action-semantic-pull-request@v5
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          types: |
+            feat
+            fix
+            docs
+            style
+            refactor
+            test
+            chore
+            build
+            ci
+          requireScope: false
+          subjectPattern: ^.{10,100}$
+          subjectPatternError: |
+            PR title must be between 10 and 100 characters.
+            Examples:
+              feat: add product search endpoint
+              fix: resolve cart total calculation bug
+              test: add order service unit tests
+
+  # ─────────────────────────────────────────────
+  # JOB 2: Compile — fastest check
+  # ─────────────────────────────────────────────
+  compile:
+    name: Compile
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+          cache: maven
+
+      - name: Compile source code
+        run: mvn compile --no-transfer-progress
+
+      - name: Compile test code
+        run: mvn test-compile --no-transfer-progress
+
+  # ─────────────────────────────────────────────
+  # JOB 3: Unit Tests + Coverage
+  # ─────────────────────────────────────────────
+  test:
+    name: Tests & Coverage
+    runs-on: ubuntu-latest
+    needs: compile
+
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_DB: ecommerce_db
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: Wpl@12345
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+          cache: maven
+
+      - name: Run all tests with coverage
+        run: mvn verify --no-transfer-progress
+        env:
+          SPRING_DATASOURCE_URL: jdbc:postgresql://localhost:5432/ecommerce_db
+          SPRING_DATASOURCE_USERNAME: postgres
+          SPRING_DATASOURCE_PASSWORD: Wpl@12345
+
+      - name: Upload test reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-reports-pr-${{ github.event.pull_request.number }}
+          path: target/surefire-reports/
+          retention-days: 7
+
+      - name: Upload JaCoCo coverage report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report-pr-${{ github.event.pull_request.number }}
+          path: target/site/jacoco/
+          retention-days: 7
+
+      - name: Post coverage summary to PR
+        if: always()
+        uses: madrapps/jacoco-report@v1.6.1
+        with:
+          paths: ${{ github.workspace }}/target/site/jacoco/jacoco.xml
+          token: ${{ secrets.GITHUB_TOKEN }}
+          min-coverage-overall: 70
+          min-coverage-changed-files: 60
+          title: Test Coverage Report
+          update-comment: true
+
+  # ─────────────────────────────────────────────
+  # JOB 4: Code Style Check
+  # ─────────────────────────────────────────────
+  code-style:
+    name: Code Style (Checkstyle)
+    runs-on: ubuntu-latest
+    needs: compile
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+          cache: maven
+
+      - name: Run Checkstyle
+        run: mvn checkstyle:checkstyle --no-transfer-progress
+
+      - name: Upload Checkstyle report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: checkstyle-report-pr-${{ github.event.pull_request.number }}
+          path: target/checkstyle-result.xml
+          retention-days: 7
+
+  # ─────────────────────────────────────────────
+  # JOB 5: Security — Dependency Vulnerability Scan
+  # ─────────────────────────────────────────────
+  security-scan:
+    name: Dependency Security Scan
+    runs-on: ubuntu-latest
+    needs: compile
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+          cache: maven
+
+      - name: Run OWASP Dependency Check
+        run: |
+          mvn org.owasp:dependency-check-maven:check \
+            -DfailBuildOnCVSS=9 \
+            -DsuppressionFile=.github/dependency-suppression.xml \
+            --no-transfer-progress || true
+
+      - name: Upload dependency check report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: dependency-check-report-pr-${{ github.event.pull_request.number }}
+          path: target/dependency-check-report.html
+          retention-days: 7
+
+  # ─────────────────────────────────────────────
+  # JOB 6: Build Final JAR
+  # ─────────────────────────────────────────────
+  build:
+    name: Build JAR
+    runs-on: ubuntu-latest
+    needs: [ test, code-style ]
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+          cache: maven
+
+      - name: Build JAR
+        run: mvn package -DskipTests --no-transfer-progress
+
+      - name: Upload JAR artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ecommerce-app-pr-${{ github.event.pull_request.number }}
+          path: target/*.jar
+          retention-days: 3
+
+  # ─────────────────────────────────────────────
+  # JOB 7: PR Validation Summary
+  # ─────────────────────────────────────────────
+  pr-summary:
+    name: PR Validation Summary
+    runs-on: ubuntu-latest
+    needs: [ pr-title-check, test, code-style, security-scan, build ]
+    if: always()
+
+    steps:
+      - name: Check all jobs passed
+        run: |
+          echo "================================================"
+          echo "  PR Validation Results"
+          echo "================================================"
+          echo "  PR Title Check : ${{ needs.pr-title-check.result }}"
+          echo "  Compile        : ${{ needs.compile.result }}"
+          echo "  Tests & Coverage: ${{ needs.test.result }}"
+          echo "  Code Style     : ${{ needs.code-style.result }}"
+          echo "  Security Scan  : ${{ needs.security-scan.result }}"
+          echo "  Build JAR      : ${{ needs.build.result }}"
+          echo "================================================"
+
+          if [[ "${{ needs.test.result }}" == "failure" ]]; then
+            echo "BLOCKED: Tests failed. Fix failing tests before merge."
+            exit 1
+          fi
+
+          if [[ "${{ needs.build.result }}" == "failure" ]]; then
+            echo "BLOCKED: Build failed. Fix build errors before merge."
+            exit 1
+          fi
+
+          echo "All critical checks passed. PR is ready for review."
